@@ -1,0 +1,423 @@
+/* Melhorias de Responsividade */
+
+/* Mobile First - Base styles */
+@media (max-width: 576px) {
+    /* Hero Section */
+    .hero-section {
+        padding: 60px 0;
+        text-align: center;
+    }
+    
+    .hero-section h1 {
+        font-size: 2rem;
+        line-height: 1.2;
+    }
+    
+    .hero-section .lead {
+        font-size: 1rem;
+    }
+    
+    .hero-section .btn {
+        width: 100%;
+        margin-bottom: 1rem;
+    }
+    
+    /* Navbar */
+    .navbar-brand {
+        font-size: 1.2rem;
+    }
+    
+    .navbar-brand img {
+        max-height: 30px;
+    }
+    
+    /* Cards */
+    .campanha-card {
+        margin-bottom: 1.5rem;
+    }
+    
+    .campanha-card .card-img-top {
+        height: 150px;
+    }
+    
+    .campanha-card .card-body {
+        padding: 1rem;
+    }
+    
+    /* Stats Cards */
+    .stats-card {
+        margin-bottom: 1rem;
+        padding: 1.5rem;
+    }
+    
+    .stats-card i {
+        font-size: 2rem;
+    }
+    
+    .stats-card h3 {
+        font-size: 1.5rem;
+    }
+    
+    /* Filtros */
+    .filtros-section {
+        padding: 1.5rem 0;
+    }
+    
+    .filtros-section .form-control,
+    .filtros-section .form-select {
+        margin-bottom: 1rem;
+    }
+    
+    /* Vantagens */
+    .vantagem-card {
+        margin-bottom: 2rem;
+        padding: 1.5rem;
+    }
+    
+    .vantagem-icon {
+        width: 60px;
+        height: 60px;
+        font-size: 1.5rem;
+    }
+    
+    /* Como Funciona */
+    .passo-card {
+        margin-bottom: 2rem;
+        padding: 1.5rem 1rem;
+    }
+    
+    .passo-icon {
+        width: 50px;
+        height: 50px;
+        font-size: 1.2rem;
+    }
+    
+    /* Categorias */
+    .categoria-card {
+        margin-bottom: 2rem;
+    }
+    
+    .categoria-imagem {
+        height: 150px;
+    }
+    
+    /* Footer */
+    .footer {
+        text-align: center;
+        padding: 2rem 0 1rem;
+    }
+    
+    .social-links {
+        justify-content: center;
+        margin-bottom: 1rem;
+    }
+    
+    .footer-badges {
+        margin-top: 1rem;
+    }
+    
+    /* Botões */
+    .btn-lg {
+        padding: 0.75rem 1.5rem;
+        font-size: 1rem;
+    }
+    
+    /* Textos */
+    .display-5 {
+        font-size: 2rem;
+    }
+    
+    .display-6 {
+        font-size: 1.5rem;
+    }
+    
+    /* Espaçamentos */
+    .py-5 {
+        padding-top: 3rem !important;
+        padding-bottom: 3rem !important;
+    }
+    
+    .mb-5 {
+        margin-bottom: 2rem !important;
+    }
+    
+    /* Container */
+    .container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+}
+
+/* Tablet */
+@media (min-width: 577px) and (max-width: 768px) {
+    /* Hero Section */
+    .hero-section {
+        padding: 80px 0;
+    }
+    
+    .hero-section h1 {
+        font-size: 2.5rem;
+    }
+    
+    /* Cards */
+    .campanha-card .card-img-top {
+        height: 180px;
+    }
+    
+    /* Stats Cards */
+    .stats-card {
+        padding: 2rem;
+    }
+    
+    .stats-card i {
+        font-size: 2.5rem;
+    }
+    
+    /* Vantagens */
+    .vantagem-icon {
+        width: 70px;
+        height: 70px;
+        font-size: 1.8rem;
+    }
+    
+    /* Como Funciona */
+    .passo-icon {
+        width: 55px;
+        height: 55px;
+        font-size: 1.3rem;
+    }
+    
+    /* Categorias */
+    .categoria-imagem {
+        height: 180px;
+    }
+}
+
+/* Desktop */
+@media (min-width: 769px) and (max-width: 1024px) {
+    /* Hero Section */
+    .hero-section {
+        padding: 100px 0;
+    }
+    
+    /* Cards */
+    .campanha-card .card-img-top {
+        height: 200px;
+    }
+    
+    /* Stats Cards */
+    .stats-card {
+        padding: 2.5rem;
+    }
+    
+    .stats-card i {
+        font-size: 3rem;
+    }
+    
+    /* Vantagens */
+    .vantagem-icon {
+        width: 80px;
+        height: 80px;
+        font-size: 2rem;
+    }
+    
+    /* Como Funciona */
+    .passo-icon {
+        width: 60px;
+        height: 60px;
+        font-size: 1.5rem;
+    }
+    
+    /* Categorias */
+    .categoria-imagem {
+        height: 200px;
+    }
+}
+
+/* Large Desktop */
+@media (min-width: 1025px) {
+    /* Hero Section */
+    .hero-section {
+        padding: 120px 0;
+    }
+    
+    .hero-section h1 {
+        font-size: 3.5rem;
+    }
+    
+    /* Cards */
+    .campanha-card .card-img-top {
+        height: 220px;
+    }
+    
+    /* Stats Cards */
+    .stats-card {
+        padding: 3rem;
+    }
+    
+    .stats-card i {
+        font-size: 3.5rem;
+    }
+    
+    /* Vantagens */
+    .vantagem-icon {
+        width: 90px;
+        height: 90px;
+        font-size: 2.2rem;
+    }
+    
+    /* Como Funciona */
+    .passo-icon {
+        width: 70px;
+        height: 70px;
+        font-size: 1.8rem;
+    }
+    
+    /* Categorias */
+    .categoria-imagem {
+        height: 220px;
+    }
+}
+
+/* Landscape Mobile */
+@media (max-width: 576px) and (orientation: landscape) {
+    .hero-section {
+        padding: 40px 0;
+    }
+    
+    .hero-section h1 {
+        font-size: 1.8rem;
+    }
+    
+    .py-5 {
+        padding-top: 2rem !important;
+        padding-bottom: 2rem !important;
+    }
+}
+
+/* High DPI Displays */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    .campanha-card img,
+    .categoria-imagem img {
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: crisp-edges;
+    }
+}
+
+/* Print Styles */
+@media print {
+    .navbar,
+    .footer,
+    .btn,
+    .hero-section {
+        display: none !important;
+    }
+    
+    .campanha-card {
+        break-inside: avoid;
+        box-shadow: none;
+        border: 1px solid #ddd;
+    }
+    
+    .container {
+        max-width: none;
+        width: 100%;
+    }
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+    
+    .campanha-card:hover,
+    .vantagem-card:hover,
+    .passo-card:hover,
+    .categoria-card:hover {
+        transform: none;
+    }
+}
+
+/* High Contrast Mode */
+@media (prefers-contrast: high) {
+    .btn-primary {
+        border: 2px solid currentColor;
+    }
+    
+    .campanha-card,
+    .vantagem-card,
+    .passo-card,
+    .categoria-card {
+        border: 2px solid currentColor;
+    }
+    
+    .progress-bar {
+        border: 1px solid currentColor;
+    }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-color: #1a1a1a;
+        --text-color: #ffffff;
+        --card-bg: #2d2d2d;
+        --border-color: #404040;
+    }
+    
+    body {
+        background-color: var(--bg-color);
+        color: var(--text-color);
+    }
+    
+    .card,
+    .campanha-card,
+    .vantagem-card,
+    .passo-card,
+    .categoria-card {
+        background-color: var(--card-bg);
+        border-color: var(--border-color);
+    }
+    
+    .bg-light {
+        background-color: var(--card-bg) !important;
+    }
+    
+    .text-muted {
+        color: #b0b0b0 !important;
+    }
+}
+
+/* Focus Styles for Accessibility */
+@media (prefers-reduced-motion: no-preference) {
+    .btn:focus,
+    .form-control:focus,
+    .form-select:focus {
+        box-shadow: 0 0 0 0.2rem rgba(var(--cor-primaria-rgb), 0.25);
+    }
+}
+
+/* Touch Device Optimizations */
+@media (hover: none) and (pointer: coarse) {
+    .campanha-card:hover,
+    .vantagem-card:hover,
+    .passo-card:hover,
+    .categoria-card:hover {
+        transform: none;
+    }
+    
+    .btn {
+        min-height: 44px;
+        min-width: 44px;
+    }
+    
+    .form-control,
+    .form-select {
+        min-height: 44px;
+    }
+} 
