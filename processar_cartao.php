@@ -54,14 +54,15 @@ try {
         $campanha = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if ($campanha && $campanha['telefone']) {
-            $msg = "💰 Parabéns, {$campanha['nome']}! Você recebeu uma nova doação de R$ " . number_format($doacao['valor'], 2, ',', '.') . " em sua campanha '{$campanha['titulo']}'.\nSeu total arrecadado agora é R$ " . number_format($campanha['arrecadado'] + $doacao['valor'], 2, ',', '.') . ".\nContinue divulgando e inspire mais pessoas! 🙌";
-            enviar_whatsapp($campanha['telefone'], $msg);
-            
-            // Se atingiu a meta, enviar parabéns
-            if ($campanha['arrecadado'] + $doacao['valor'] >= $campanha['meta']) {
-                $msg_meta = "🎯 Uau, {$campanha['nome']}! Sua campanha '{$campanha['titulo']}' atingiu a meta!\nParabéns por essa conquista! 🏆";
-                enviar_whatsapp($campanha['telefone'], $msg_meta);
-            }
+            $total_arrecadado = $campanha['arrecadado'] + $doacao['valor'];
+            enviar_notificacao_doacao(
+                $campanha['telefone'],
+                $campanha['titulo'],
+                $doacao['nome'] ?? 'Doador Anônimo',
+                $doacao['valor'],
+                $total_arrecadado,
+                $campanha['meta']
+            );
         }
     }
     

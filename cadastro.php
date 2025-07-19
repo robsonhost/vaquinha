@@ -48,10 +48,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$nome, $email, $telefone, $cpf, $hash, 'usuario', $foto_perfil]);
             $sucesso = 'Cadastro realizado com sucesso! Faça login para criar sua campanha.';
             // Enviar WhatsApp de boas-vindas
-            $senha_aleatoria = $senha; // já foi digitada pelo usuário
-            $mensagem = "🎉 Olá, $nome! Sua conta foi criada com sucesso na " . ($textos['nome_site'] ?? 'Vaquinha Online') . "!\nAcesse: https://" . $_SERVER['HTTP_HOST'] . "/entrar.php\nE-mail: $email\nSenha: $senha_aleatoria\n🚀 Dica: Compartilhe sua campanha para alcançar sua meta mais rápido!\nConte com a gente para transformar sonhos em realidade! 💙";
             if ($telefone) {
-                enviar_whatsapp($telefone, $mensagem);
+                enviar_boas_vindas_whatsapp($telefone, $nome, $email, $senha);
             }
             // Enviar e-mail de boas-vindas (opcional)
             // ...
