@@ -49,7 +49,11 @@ Um sistema completo e moderno para criação e gerenciamento de campanhas de arr
 
 ### 1. Clone o repositório
 ```bash
+<<<<<<< HEAD
 git clone https://github.com/seu-usuario/vaquinha-online.git
+=======
+git clone https://github.com/robsonhost/vaquinha.git
+>>>>>>> 451ba358f4d61783938d72ac03a3664c01dcac34
 cd vaquinha-online
 ```
 
@@ -324,7 +328,11 @@ O sistema é totalmente responsivo e funciona em:
 - **Documentação**: [docs.vaquinhaonline.com](https://docs.vaquinhaonline.com)
 
 ### Comunidade
+<<<<<<< HEAD
 - **GitHub**: [github.com/vaquinha-online](https://github.com/vaquinha-online)
+=======
+- **GitHub**: [github.com/vaquinha-online](https://github.com/robsonhost/vaquinha
+>>>>>>> 451ba358f4d61783938d72ac03a3664c01dcac34
 - **Issues**: [github.com/vaquinha-online/issues](https://github.com/vaquinha-online/issues)
 - **Discord**: [discord.gg/vaquinha-online](https://discord.gg/vaquinha-online)
 
