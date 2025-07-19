@@ -8,28 +8,111 @@ if (!isset($_SESSION['usuario_id'])) {
 }
 
 $usuario_id = $_SESSION['usuario_id'];
+$page_title = 'Dashboard';
 
 // Carregar dados do usuário
-$usuario = $pdo->prepare('SELECT * FROM usuarios WHERE id = ?')->execute([$usuario_id])->fetch(PDO::FETCH_ASSOC);
+$stmt = $pdo->prepare('SELECT * FROM usuarios WHERE id = ?');
+$stmt->execute([$usuario_id]);
+$usuario = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$usuario) {
+    session_destroy();
+    header('Location: login.php');
+    exit;
+}
+
+// Verificar se o usuário está ativo
+if ($usuario['status'] !== 'ativo') {
+    session_destroy();
+    header('Location: login.php?erro=conta_inativa');
+    exit;
+}
+
+// Atualizar último acesso
+$stmt = $pdo->prepare('UPDATE usuarios SET ultimo_acesso = NOW() WHERE id = ?');
+$stmt->execute([$usuario_id]);
 
 // Estatísticas do usuário
-$minhasCampanhas = $pdo->prepare('SELECT COUNT(*) FROM campanhas WHERE usuario_id = ?')->execute([$usuario_id])->fetchColumn();
-$campanhasAprovadas = $pdo->prepare('SELECT COUNT(*) FROM campanhas WHERE usuario_id = ? AND status = "aprovada"')->execute([$usuario_id])->fetchColumn();
-$totalArrecadado = $pdo->prepare('SELECT SUM(arrecadado) FROM campanhas WHERE usuario_id = ? AND status = "aprovada"')->execute([$usuario_id])->fetchColumn() ?: 0;
-$minhasDoacoes = $pdo->prepare('SELECT COUNT(*) FROM doacoes WHERE usuario_id = ?')->execute([$usuario_id])->fetchColumn();
-$totalDoado = $pdo->prepare('SELECT SUM(valor) FROM doacoes WHERE usuario_id = ? AND status = "confirmada"')->execute([$usuario_id])->fetchColumn() ?: 0;
+$stmt = $pdo->prepare('SELECT COUNT(*) FROM campanhas WHERE usuario_id = ?');
+$stmt->execute([$usuario_id]);
+$minhasCampanhas = $stmt->fetchColumn();
 
-// Campanhas do usuário
-$campanhas = $pdo->prepare('SELECT c.*, cat.nome as categoria_nome FROM campanhas c LEFT JOIN categorias cat ON c.categoria_id = cat.id WHERE c.usuario_id = ? ORDER BY c.criado_em DESC')->execute([$usuario_id])->fetchAll(PDO::FETCH_ASSOC);
+$stmt = $pdo->prepare('SELECT COUNT(*) FROM campanhas WHERE usuario_id = ? AND status = "aprovada"');
+$stmt->execute([$usuario_id]);
+$campanhasAprovadas = $stmt->fetchColumn();
 
-// Doações do usuário
-$doacoes = $pdo->prepare('SELECT d.*, c.titulo as campanha_titulo FROM doacoes d LEFT JOIN campanhas c ON d.campanha_id = c.id WHERE d.usuario_id = ? ORDER BY d.criado_em DESC')->execute([$usuario_id])->fetchAll(PDO::FETCH_ASSOC);
+$stmt = $pdo->prepare('SELECT COUNT(*) FROM campanhas WHERE usuario_id = ? AND status = "pendente"');
+$stmt->execute([$usuario_id]);
+$campanhasPendentes = $stmt->fetchColumn();
+
+$stmt = $pdo->prepare('SELECT COALESCE(SUM(arrecadado), 0) FROM campanhas WHERE usuario_id = ? AND status = "aprovada"');
+$stmt->execute([$usuario_id]);
+$totalArrecadado = $stmt->fetchColumn();
+
+$stmt = $pdo->prepare('SELECT COUNT(*) FROM doacoes WHERE usuario_id = ?');
+$stmt->execute([$usuario_id]);
+$minhasDoacoes = $stmt->fetchColumn();
+
+$stmt = $pdo->prepare('SELECT COALESCE(SUM(valor), 0) FROM doacoes WHERE usuario_id = ? AND status = "confirmada"');
+$stmt->execute([$usuario_id]);
+$totalDoado = $stmt->fetchColumn();
+
+// Campanhas do usuário (últimas 5)
+$stmt = $pdo->prepare('
+    SELECT c.*, cat.nome as categoria_nome, 
+           (c.arrecadado / c.meta * 100) as percentual_meta
+    FROM campanhas c 
+    LEFT JOIN categorias cat ON c.categoria_id = cat.id 
+    WHERE c.usuario_id = ? 
+    ORDER BY c.criado_em DESC 
+    LIMIT 5
+');
+$stmt->execute([$usuario_id]);
+$campanhas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Doações do usuário (últimas 5)
+$stmt = $pdo->prepare('
+    SELECT d.*, c.titulo as campanha_titulo, c.imagem as campanha_imagem 
+    FROM doacoes d 
+    LEFT JOIN campanhas c ON d.campanha_id = c.id 
+    WHERE d.usuario_id = ? 
+    ORDER BY d.criado_em DESC 
+    LIMIT 5
+');
+$stmt->execute([$usuario_id]);
+$doacoes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Gráfico de campanhas por status
-$campanhasPorStatus = $pdo->prepare('SELECT status, COUNT(*) as total FROM campanhas WHERE usuario_id = ? GROUP BY status')->execute([$usuario_id])->fetchAll(PDO::FETCH_ASSOC);
+$stmt = $pdo->prepare('SELECT status, COUNT(*) as total FROM campanhas WHERE usuario_id = ? GROUP BY status');
+$stmt->execute([$usuario_id]);
+$campanhasPorStatus = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Gráfico de doações por mês (últimos 6 meses)
-$doacoesPorMes = $pdo->prepare('SELECT DATE_FORMAT(criado_em, "%Y-%m") as mes, COUNT(*) as total, SUM(valor) as valor_total FROM doacoes WHERE usuario_id = ? AND criado_em >= DATE_SUB(NOW(), INTERVAL 6 MONTH) GROUP BY DATE_FORMAT(criado_em, "%Y-%m") ORDER BY mes')->execute([$usuario_id])->fetchAll(PDO::FETCH_ASSOC);
+// Doações recebidas nas minhas campanhas (últimos 30 dias)
+$stmt = $pdo->prepare('
+    SELECT DATE_FORMAT(d.criado_em, "%Y-%m-%d") as data, 
+           COUNT(*) as total_doacoes, 
+           SUM(d.valor) as valor_total
+    FROM doacoes d 
+    JOIN campanhas c ON d.campanha_id = c.id 
+    WHERE c.usuario_id = ? 
+      AND d.status = "confirmada" 
+      AND d.criado_em >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    GROUP BY DATE_FORMAT(d.criado_em, "%Y-%m-%d") 
+    ORDER BY data ASC
+');
+$stmt->execute([$usuario_id]);
+$doacoesRecebidas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Notificações não lidas
+$stmt = $pdo->prepare('
+    SELECT * FROM notificacoes 
+    WHERE (usuario_id = ? OR destinatario IN ("todos", "usuarios"))
+      AND lida = 0 
+    ORDER BY criado_em DESC 
+    LIMIT 5
+');
+$stmt->execute([$usuario_id]);
+$notificacoes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Carregar tema
 $tema = $pdo->query('SELECT * FROM temas WHERE ativo = 1')->fetch(PDO::FETCH_ASSOC);
@@ -37,685 +120,569 @@ if (!$tema) {
     $tema = ['cor_primaria' => '#782F9B', 'cor_secundaria' => '#65A300', 'cor_terciaria' => '#F7F7F7'];
 }
 
-// Carregar logo
-$logo = $pdo->query('SELECT * FROM logo_site WHERE id=1')->fetch(PDO::FETCH_ASSOC);
+// Carregar configurações
+$textos = [];
+foreach ($pdo->query('SELECT chave, valor FROM textos')->fetchAll(PDO::FETCH_ASSOC) as $t) {
+    $textos[$t['chave']] = $t['valor'];
+}
+
+$nome_site = $textos['nome_site'] ?? 'Vaquinha Online';
+
+include '_header_usuario.php';
 ?>
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minha Conta - Vaquinha Online</title>
-    
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
-    <style>
-        :root {
-            --cor-primaria: <?= $tema['cor_primaria'] ?>;
-            --cor-secundaria: <?= $tema['cor_secundaria'] ?>;
-            --cor-terciaria: <?= $tema['cor_terciaria'] ?>;
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+            background-color: var(--cor-terciaria);
+            margin: 0;
+            padding: 0;
         }
         
-        * {
-            font-family: 'Inter', sans-serif;
+        .navbar {
+            background: linear-gradient(135deg, var(--cor-primaria), var(--cor-secundaria));
+            box-shadow: 0 2px 20px rgba(0,0,0,0.1);
         }
         
-        .bg-gradient-primary {
-            background: linear-gradient(135deg, var(--cor-primaria), var(--cor-secundaria)) !important;
+        .navbar-brand {
+            font-weight: 700;
+            font-size: 1.5rem;
+            color: white !important;
         }
         
-        .btn-primary {
-            background-color: var(--cor-primaria) !important;
-            border-color: var(--cor-primaria) !important;
+        .navbar-nav .nav-link {
+            color: rgba(255,255,255,0.9) !important;
+            font-weight: 500;
+            transition: all 0.3s ease;
         }
         
-        .btn-primary:hover {
-            background-color: var(--cor-secundaria) !important;
-            border-color: var(--cor-secundaria) !important;
+        .navbar-nav .nav-link:hover {
+            color: white !important;
+            transform: translateY(-1px);
         }
         
-        .text-primary {
-            color: var(--cor-primaria) !important;
+        .dropdown-menu {
+            border: none;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            border-radius: 10px;
         }
         
-        .border-primary {
-            border-color: var(--cor-primaria) !important;
+        .main-content {
+            padding: 2rem 0;
         }
         
-        .progress-bar {
-            background-color: var(--cor-primaria) !important;
+        .welcome-card {
+            background: linear-gradient(135deg, var(--cor-primaria), var(--cor-secundaria));
+            color: white;
+            border-radius: 20px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
         }
         
-        .navbar-brand img {
-            max-height: 40px;
+        .welcome-card h2 {
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        
+        .welcome-card p {
+            opacity: 0.9;
+            margin-bottom: 0;
         }
         
         .stats-card {
-            background: linear-gradient(135deg, var(--cor-primaria), var(--cor-secundaria));
-            color: white;
+            background: white;
             border-radius: 15px;
-            padding: 2rem;
-            text-align: center;
-            transition: transform 0.3s ease;
+            padding: 1.5rem;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+            border: none;
+            height: 100%;
         }
         
         .stats-card:hover {
             transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.15);
         }
         
-        .stats-card i {
-            font-size: 3rem;
+        .stats-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            color: white;
             margin-bottom: 1rem;
         }
         
-        .campanha-card {
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        .stats-number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+        
+        .stats-label {
+            color: #666;
+            font-size: 0.9rem;
+            margin-bottom: 0;
+        }
+        
+        .card {
             border: none;
             border-radius: 15px;
-            overflow: hidden;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            margin-bottom: 2rem;
         }
         
-        .campanha-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        .card-header {
+            background: white;
+            border-bottom: 1px solid #f0f0f0;
+            border-radius: 15px 15px 0 0;
+            padding: 1.5rem;
         }
         
-        .campanha-card .card-img-top {
-            height: 200px;
-            object-fit: cover;
+        .card-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 0;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--cor-primaria), var(--cor-secundaria));
+            border: none;
+            border-radius: 10px;
+            padding: 0.75rem 2rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+        }
+        
+        .btn-outline-primary {
+            border: 2px solid var(--cor-primaria);
+            color: var(--cor-primaria);
+            border-radius: 10px;
+            padding: 0.75rem 2rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-outline-primary:hover {
+            background: var(--cor-primaria);
+            border-color: var(--cor-primaria);
+            transform: translateY(-2px);
         }
         
         .progress {
             height: 8px;
             border-radius: 10px;
+            background-color: #f0f0f0;
         }
         
-        .sidebar {
-            background-color: var(--cor-terciaria);
-            min-height: 100vh;
-            padding: 2rem 0;
-        }
-        
-        .sidebar .nav-link {
-            color: var(--cor-primaria);
-            padding: 1rem 2rem;
+        .progress-bar {
+            background: linear-gradient(90deg, var(--cor-primaria), var(--cor-secundaria));
             border-radius: 10px;
-            margin: 0.5rem 1rem;
-            transition: all 0.3s ease;
         }
         
-        .sidebar .nav-link:hover,
-        .sidebar .nav-link.active {
-            background-color: var(--cor-primaria);
-            color: white;
+        .badge {
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: 500;
         }
         
-        .sidebar .nav-link i {
-            margin-right: 0.5rem;
+        .badge-success {
+            background: linear-gradient(135deg, #28a745, #20c997);
         }
         
-        .content-area {
-            padding: 2rem;
+        .badge-warning {
+            background: linear-gradient(135deg, #ffc107, #fd7e14);
         }
         
-        .profile-header {
-            background: linear-gradient(135deg, var(--cor-primaria), var(--cor-secundaria));
-            color: white;
-            padding: 3rem 0;
-            border-radius: 15px;
-            margin-bottom: 2rem;
+        .badge-danger {
+            background: linear-gradient(135deg, #dc3545, #e83e8c);
         }
         
-        .profile-avatar {
-            width: 120px;
-            height: 120px;
-            border-radius: 50%;
-            object-fit: cover;
-            border: 4px solid white;
+        .badge-info {
+            background: linear-gradient(135deg, #17a2b8, #6610f2);
         }
         
-        .table-responsive {
-            border-radius: 15px;
+        .table {
+            border-radius: 10px;
             overflow: hidden;
         }
         
-        .table th {
-            background-color: var(--cor-terciaria);
+        .table thead th {
+            background: var(--cor-terciaria);
             border: none;
-            color: var(--cor-primaria);
             font-weight: 600;
+            color: #333;
+        }
+        
+        .table tbody td {
+            border: none;
+            border-bottom: 1px solid #f0f0f0;
+            vertical-align: middle;
+        }
+        
+        .notification-item {
+            padding: 1rem;
+            border-radius: 10px;
+            background: #f8f9fa;
+            margin-bottom: 0.5rem;
+            border-left: 4px solid var(--cor-primaria);
+        }
+        
+        .notification-item.unread {
+            background: #e3f2fd;
+            border-left-color: var(--cor-secundaria);
+        }
+        
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: #666;
+        }
+        
+        .empty-state i {
+            font-size: 3rem;
+            color: #ddd;
+            margin-bottom: 1rem;
         }
         
         @media (max-width: 768px) {
-            .sidebar {
-                min-height: auto;
+            .main-content {
                 padding: 1rem 0;
             }
             
-            .content-area {
-                padding: 1rem;
+            .welcome-card {
+                padding: 1.5rem;
+                text-align: center;
             }
             
             .stats-card {
                 margin-bottom: 1rem;
+                text-align: center;
+            }
+            
+            .stats-number {
+                font-size: 1.5rem;
             }
         }
     </style>
-</head>
-<body>
-    <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
-        <div class="container">
-            <a class="navbar-brand" href="index.php">
-                <?php if ($logo && $logo['caminho']): ?>
-                    <img src="<?= htmlspecialchars($logo['caminho']) ?>" alt="Logo">
-                <?php else: ?>
-                    <i class="fas fa-heart text-primary"></i>
-                    <span class="fw-bold">Vaquinha Online</span>
-                <?php endif; ?>
-            </a>
-            
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="index.php">Home</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="nova_campanha_usuario.php">Nova Campanha</a>
-                    </li>
-                </ul>
-                
-                <div class="d-flex align-items-center">
-                    <div class="dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
-                            <i class="fas fa-user-circle"></i> <?= htmlspecialchars($usuario['nome']) ?>
-                        </a>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="area_usuario.php"><i class="fas fa-user me-2"></i>Minha Conta</a></li>
-                            <li><a class="dropdown-item" href="editar_perfil.php"><i class="fas fa-edit me-2"></i>Editar Perfil</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i>Sair</a></li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </nav>
 
-    <div class="container-fluid">
-        <div class="row">
-            <!-- Sidebar -->
-            <div class="col-lg-3 col-md-4">
-                <div class="sidebar">
-                    <div class="text-center mb-4">
-                        <?php if ($usuario['foto_perfil']): ?>
-                            <img src="<?= htmlspecialchars($usuario['foto_perfil']) ?>" alt="Foto de perfil" class="profile-avatar mb-3">
-                        <?php else: ?>
-                            <div class="profile-avatar mb-3 mx-auto d-flex align-items-center justify-content-center bg-light">
-                                <i class="fas fa-user fa-3x text-muted"></i>
-                            </div>
-                        <?php endif; ?>
-                        <h5 class="text-primary"><?= htmlspecialchars($usuario['nome']) ?></h5>
-                        <p class="text-muted"><?= htmlspecialchars($usuario['email']) ?></p>
-                    </div>
-                    
-                    <nav class="nav flex-column">
-                        <a class="nav-link active" href="#dashboard" data-bs-toggle="tab">
-                            <i class="fas fa-tachometer-alt"></i> Dashboard
-                        </a>
-                        <a class="nav-link" href="#campanhas" data-bs-toggle="tab">
-                            <i class="fas fa-hand-holding-heart"></i> Minhas Campanhas
-                        </a>
-                        <a class="nav-link" href="#doacoes" data-bs-toggle="tab">
-                            <i class="fas fa-heart"></i> Minhas Doações
-                        </a>
-                        <a class="nav-link" href="#perfil" data-bs-toggle="tab">
-                            <i class="fas fa-user-cog"></i> Configurações
-                        </a>
-                    </nav>
-                </div>
-            </div>
-            
-            <!-- Content Area -->
-            <div class="col-lg-9 col-md-8">
-                <div class="content-area">
-                    <div class="tab-content">
-                        <!-- Dashboard -->
-                        <div class="tab-pane fade show active" id="dashboard">
-                            <div class="d-flex justify-content-between align-items-center mb-4">
-                                <h2 class="mb-0">Dashboard</h2>
-                                <a href="nova_campanha_usuario.php" class="btn btn-primary">
-                                    <i class="fas fa-plus"></i> Nova Campanha
-                                </a>
-                            </div>
-                            
-                            <!-- Estatísticas -->
-                            <div class="row mb-4">
-                                <div class="col-lg-3 col-md-6 mb-3">
-                                    <div class="stats-card">
-                                        <i class="fas fa-hand-holding-heart"></i>
-                                        <h3 class="display-6 fw-bold"><?= number_format($minhasCampanhas, 0, ',', '.') ?></h3>
-                                        <p class="mb-0">Minhas Campanhas</p>
-                                    </div>
-                                </div>
-                                <div class="col-lg-3 col-md-6 mb-3">
-                                    <div class="stats-card">
-                                        <i class="fas fa-check-circle"></i>
-                                        <h3 class="display-6 fw-bold"><?= number_format($campanhasAprovadas, 0, ',', '.') ?></h3>
-                                        <p class="mb-0">Campanhas Aprovadas</p>
-                                    </div>
-                                </div>
-                                <div class="col-lg-3 col-md-6 mb-3">
-                                    <div class="stats-card">
-                                        <i class="fas fa-dollar-sign"></i>
-                                        <h3 class="display-6 fw-bold">R$ <?= number_format($totalArrecadado, 0, ',', '.') ?></h3>
-                                        <p class="mb-0">Total Arrecadado</p>
-                                    </div>
-                                </div>
-                                <div class="col-lg-3 col-md-6 mb-3">
-                                    <div class="stats-card">
-                                        <i class="fas fa-heart"></i>
-                                        <h3 class="display-6 fw-bold"><?= number_format($minhasDoacoes, 0, ',', '.') ?></h3>
-                                        <p class="mb-0">Minhas Doações</p>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Gráficos -->
-                            <div class="row mb-4">
-                                <div class="col-lg-6">
-                                    <div class="card">
-                                        <div class="card-header">
-                                            <h5 class="card-title mb-0">
-                                                <i class="fas fa-chart-pie"></i> Status das Campanhas
-                                            </h5>
-                                        </div>
-                                        <div class="card-body">
-                                            <canvas id="campanhasChart" style="height: 250px;"></canvas>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-lg-6">
-                                    <div class="card">
-                                        <div class="card-header">
-                                            <h5 class="card-title mb-0">
-                                                <i class="fas fa-chart-line"></i> Doações por Mês
-                                            </h5>
-                                        </div>
-                                        <div class="card-body">
-                                            <canvas id="doacoesChart" style="height: 250px;"></canvas>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Resumo -->
-                            <div class="row">
-                                <div class="col-lg-6">
-                                    <div class="card">
-                                        <div class="card-header">
-                                            <h5 class="card-title mb-0">
-                                                <i class="fas fa-star"></i> Campanhas em Destaque
-                                            </h5>
-                                        </div>
-                                        <div class="card-body">
-                                            <?php 
-                                            $campanhasDestaque = array_filter($campanhas, function($c) { return $c['destaque'] == 1; });
-                                            if (empty($campanhasDestaque)): ?>
-                                                <p class="text-muted">Nenhuma campanha em destaque</p>
-                                            <?php else: ?>
-                                                <?php foreach (array_slice($campanhasDestaque, 0, 3) as $camp): ?>
-                                                    <div class="d-flex align-items-center mb-3">
-                                                        <div class="flex-shrink-0">
-                                                            <i class="fas fa-star text-warning"></i>
-                                                        </div>
-                                                        <div class="flex-grow-1 ms-3">
-                                                            <h6 class="mb-0"><?= htmlspecialchars($camp['titulo']) ?></h6>
-                                                            <small class="text-muted">R$ <?= number_format($camp['arrecadado'], 2, ',', '.') ?> arrecadados</small>
-                                                        </div>
-                                                    </div>
-                                                <?php endforeach; ?>
-                                            <?php endif; ?>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-lg-6">
-                                    <div class="card">
-                                        <div class="card-header">
-                                            <h5 class="card-title mb-0">
-                                                <i class="fas fa-clock"></i> Últimas Atividades
-                                            </h5>
-                                        </div>
-                                        <div class="card-body">
-                                            <?php 
-                                            $ultimasAtividades = array_merge(
-                                                array_map(function($c) { return ['tipo' => 'campanha', 'data' => $c['criado_em'], 'titulo' => $c['titulo']]; }, array_slice($campanhas, 0, 2)),
-                                                array_map(function($d) { return ['tipo' => 'doacao', 'data' => $d['criado_em'], 'titulo' => $d['campanha_titulo']]; }, array_slice($doacoes, 0, 2))
-                                            );
-                                            usort($ultimasAtividades, function($a, $b) { return strtotime($b['data']) - strtotime($a['data']); });
-                                            ?>
-                                            <?php foreach (array_slice($ultimasAtividades, 0, 4) as $atividade): ?>
-                                                <div class="d-flex align-items-center mb-3">
-                                                    <div class="flex-shrink-0">
-                                                        <i class="fas fa-<?= $atividade['tipo'] === 'campanha' ? 'hand-holding-heart' : 'heart' ?> text-primary"></i>
-                                                    </div>
-                                                    <div class="flex-grow-1 ms-3">
-                                                        <h6 class="mb-0"><?= htmlspecialchars($atividade['titulo']) ?></h6>
-                                                        <small class="text-muted"><?= date('d/m/Y H:i', strtotime($atividade['data'])) ?></small>
-                                                    </div>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Minhas Campanhas -->
-                        <div class="tab-pane fade" id="campanhas">
-                            <div class="d-flex justify-content-between align-items-center mb-4">
-                                <h2 class="mb-0">Minhas Campanhas</h2>
-                                <div>
-                                    <a href="nova_campanha_usuario.php" class="btn btn-primary">
-                                        <i class="fas fa-plus"></i> Nova Campanha
-                                    </a>
-                                    <button class="btn btn-outline-secondary ms-2" data-bs-toggle="modal" data-bs-target="#modalSugerirCategoria">
-                                        <i class="fas fa-tag"></i> Sugerir Nova Categoria
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <?php if (empty($campanhas)): ?>
-                                <div class="text-center py-5">
-                                    <i class="fas fa-hand-holding-heart fa-3x text-muted mb-3"></i>
-                                    <h3>Nenhuma campanha criada</h3>
-                                    <p class="text-muted">Comece criando sua primeira campanha para ajudar uma causa.</p>
-                                    <a href="nova_campanha_usuario.php" class="btn btn-primary">
-                                        <i class="fas fa-plus"></i> Criar Campanha
-                                    </a>
-                                </div>
-                            <?php else: ?>
-                                <div class="row">
-                                    <?php foreach ($campanhas as $campanha): ?>
-                                        <div class="col-lg-6 col-md-12 mb-4">
-                                            <div class="card campanha-card h-100">
-                                                <?php if ($campanha['imagem']): ?>
-                                                    <img src="<?= htmlspecialchars($campanha['imagem']) ?>" class="card-img-top" alt="<?= htmlspecialchars($campanha['titulo']) ?>">
-                                                <?php else: ?>
-                                                    <div class="card-img-top bg-light d-flex align-items-center justify-content-center">
-                                                        <i class="fas fa-image fa-3x text-muted"></i>
-                                                    </div>
-                                                <?php endif; ?>
-                                                
-                                                <div class="card-body d-flex flex-column">
-                                                    <div class="d-flex justify-content-between align-items-start mb-2">
-                                                        <span class="badge bg-<?= $campanha['status'] === 'aprovada' ? 'success' : ($campanha['status'] === 'pendente' ? 'warning' : 'secondary') ?>">
-                                                            <?= ucfirst($campanha['status']) ?>
-                                                        </span>
-                                                        <?php if ($campanha['destaque']): ?>
-                                                            <span class="badge bg-warning">
-                                                                <i class="fas fa-star"></i> Destaque
-                                                            </span>
-                                                        <?php endif; ?>
-                                                    </div>
-                                                    
-                                                    <h5 class="card-title"><?= htmlspecialchars($campanha['titulo']) ?></h5>
-                                                    <p class="card-text text-muted">
-                                                        <?= htmlspecialchars(substr($campanha['descricao'], 0, 100)) ?>...
-                                                    </p>
-                                                    
-                                                    <div class="mt-auto">
-                                                        <div class="d-flex justify-content-between align-items-center mb-2">
-                                                            <span class="fw-bold text-primary">R$ <?= number_format($campanha['arrecadado'], 2, ',', '.') ?></span>
-                                                            <span class="text-muted">de R$ <?= number_format($campanha['meta'], 2, ',', '.') ?></span>
-                                                        </div>
-                                                        
-                                                        <div class="progress mb-3">
-                                                            <?php $progresso = ($campanha['meta'] > 0) ? ($campanha['arrecadado'] / $campanha['meta']) * 100 : 0; ?>
-                                                            <div class="progress-bar" style="width: <?= min($progresso, 100) ?>%"></div>
-                                                        </div>
-                                                        
-                                                        <div class="d-flex justify-content-between align-items-center">
-                                                            <small class="text-muted">
-                                                                <i class="fas fa-tag"></i> <?= htmlspecialchars($campanha['categoria_nome'] ?: 'Sem categoria') ?>
-                                                            </small>
-                                                            <a href="detalhes_campanha.php?id=<?= $campanha['id'] ?>" class="btn btn-primary btn-sm">
-                                                                <i class="fas fa-eye"></i> Ver
-                                                            </a>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    <?php endforeach; ?>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                        
-                        <!-- Minhas Doações -->
-                        <div class="tab-pane fade" id="doacoes">
-                            <h2 class="mb-4">Minhas Doações</h2>
-                            <form method="get" class="row g-3 mb-3" id="filtroDoacoesUsuario">
-                                <div class="col-md-3">
-                                    <select name="status" class="form-select" onchange="this.form.submit()">
-                                        <option value="">Todos os Status</option>
-                                        <option value="pendente" <?= isset($_GET['status']) && $_GET['status']==='pendente' ? 'selected' : '' ?>>Pendente</option>
-                                        <option value="confirmada" <?= isset($_GET['status']) && $_GET['status']==='confirmada' ? 'selected' : '' ?>>Confirmada</option>
-                                        <option value="cancelada" <?= isset($_GET['status']) && $_GET['status']==='cancelada' ? 'selected' : '' ?>>Cancelada</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-4">
-                                    <input type="text" name="campanha" class="form-control" placeholder="Buscar campanha..." value="<?= htmlspecialchars($_GET['campanha'] ?? '') ?>" onchange="this.form.submit()">
-                                </div>
-                            </form>
-                            <?php
-                            $doacoesFiltradas = $doacoes;
-                            if (isset($_GET['status']) && $_GET['status']) {
-                                $doacoesFiltradas = array_filter($doacoesFiltradas, function($d) { return $d['status'] === $_GET['status']; });
-                            }
-                            if (isset($_GET['campanha']) && $_GET['campanha']) {
-                                $doacoesFiltradas = array_filter($doacoesFiltradas, function($d) { return stripos($d['campanha_titulo'], $_GET['campanha']) !== false; });
-                            }
-                            ?>
-                            <?php if (empty($doacoesFiltradas)): ?>
-                                <div class="text-center py-5">
-                                    <i class="fas fa-heart fa-3x text-muted mb-3"></i>
-                                    <h3>Nenhuma doação encontrada</h3>
-                                    <p class="text-muted">Altere os filtros ou explore campanhas para doar.</p>
-                                    <a href="index.php" class="btn btn-primary">
-                                        <i class="fas fa-search"></i> Ver Campanhas
-                                    </a>
-                                </div>
-                            <?php else: ?>
-                            <div class="card">
-                                <div class="card-body p-0">
-                                    <div class="table-responsive">
-                                        <table class="table table-hover mb-0">
-                                            <thead>
-                                                <tr>
-                                                    <th>Campanha</th>
-                                                    <th>Valor</th>
-                                                    <th>Status</th>
-                                                    <th>Data</th>
-                                                    <th>Comprovante</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <?php foreach ($doacoesFiltradas as $doacao): ?>
-                                                <tr>
-                                                    <td><strong><?= htmlspecialchars($doacao['campanha_titulo']) ?></strong></td>
-                                                    <td>R$ <?= number_format($doacao['valor'], 2, ',', '.') ?></td>
-                                                    <td>
-                                                        <span class="badge bg-<?= $doacao['status'] === 'confirmada' ? 'success' : ($doacao['status'] === 'pendente' ? 'warning' : 'secondary') ?>">
-                                                            <?= ucfirst($doacao['status']) ?>
-                                                        </span>
-                                                    </td>
-                                                    <td><?= date('d/m/Y H:i', strtotime($doacao['criado_em'])) ?></td>
-                                                    <td>
-                                                        <?php if ($doacao['comprovante']): ?>
-                                                            <a href="<?= htmlspecialchars($doacao['comprovante']) ?>" target="_blank" class="btn btn-sm btn-outline-primary">
-                                                                <i class="fas fa-file"></i> Ver
-                                                            </a>
-                                                        <?php else: ?>
-                                                            <span class="text-muted">-</span>
-                                                        <?php endif; ?>
-                                                    </td>
-                                                </tr>
-                                                <?php endforeach; ?>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                            <?php endif; ?>
-                        </div>
-                        
-                        <!-- Configurações -->
-                        <div class="tab-pane fade" id="perfil">
-                            <h2 class="mb-4">Configurações da Conta</h2>
-                            
-                            <div class="row">
-                                <div class="col-lg-8">
-                                    <div class="card">
-                                        <div class="card-header">
-                                            <h5 class="card-title mb-0">
-                                                <i class="fas fa-user-edit"></i> Editar Perfil
-                                            </h5>
-                                        </div>
-                                        <div class="card-body">
-                                            <form action="editar_perfil.php" method="post" enctype="multipart/form-data">
-                                                <div class="row">
-                                                    <div class="col-md-6">
-                                                        <div class="form-group mb-3">
-                                                            <label>Nome Completo</label>
-                                                            <input type="text" name="nome" class="form-control" value="<?= htmlspecialchars($usuario['nome']) ?>" required>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-md-6">
-                                                        <div class="form-group mb-3">
-                                                            <label>E-mail</label>
-                                                            <input type="email" name="email" class="form-control" value="<?= htmlspecialchars($usuario['email']) ?>" required>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                
-                                                <div class="form-group mb-3">
-                                                    <label>Foto de Perfil</label>
-                                                    <input type="file" name="foto_perfil" class="form-control" accept="image/*">
-                                                    <small class="text-muted">Formatos: JPG, PNG, GIF. Máx: 2MB.</small>
-                                                </div>
-                                                
-                                                <button type="submit" class="btn btn-primary">
-                                                    <i class="fas fa-save"></i> Salvar Alterações
-                                                </button>
-                                            </form>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="card mt-4">
-                                        <div class="card-header">
-                                            <h5 class="card-title mb-0">
-                                                <i class="fas fa-lock"></i> Alterar Senha
-                                            </h5>
-                                        </div>
-                                        <div class="card-body">
-                                            <form action="alterar_senha.php" method="post">
-                                                <div class="form-group mb-3">
-                                                    <label>Senha Atual</label>
-                                                    <input type="password" name="senha_atual" class="form-control" required>
-                                                </div>
-                                                
-                                                <div class="form-group mb-3">
-                                                    <label>Nova Senha</label>
-                                                    <input type="password" name="nova_senha" class="form-control" required>
-                                                </div>
-                                                
-                                                <div class="form-group mb-3">
-                                                    <label>Confirmar Nova Senha</label>
-                                                    <input type="password" name="confirmar_senha" class="form-control" required>
-                                                </div>
-                                                
-                                                <button type="submit" class="btn btn-warning">
-                                                    <i class="fas fa-key"></i> Alterar Senha
-                                                </button>
-                                            </form>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div class="col-lg-4">
-                                    <div class="card">
-                                        <div class="card-header">
-                                            <h5 class="card-title mb-0">
-                                                <i class="fas fa-info-circle"></i> Informações da Conta
-                                            </h5>
-                                        </div>
-                                        <div class="card-body">
-                                            <div class="mb-3">
-                                                <strong>Membro desde:</strong><br>
-                                                <span class="text-muted"><?= date('d/m/Y', strtotime($usuario['criado_em'])) ?></span>
-                                            </div>
-                                            
-                                            <div class="mb-3">
-                                                <strong>Status:</strong><br>
-                                                <span class="badge bg-<?= $usuario['status'] === 'ativo' ? 'success' : 'secondary' ?>">
-                                                    <?= ucfirst($usuario['status']) ?>
-                                                </span>
-                                            </div>
-                                            
-                                            <div class="mb-3">
-                                                <strong>Tipo de conta:</strong><br>
-                                                <span class="badge bg-info"><?= ucfirst($usuario['tipo']) ?></span>
-                                            </div>
-                                            
-                                            <hr>
-                                            
-                                            <div class="d-grid">
-                                                <a href="logout.php" class="btn btn-outline-danger">
-                                                    <i class="fas fa-sign-out-alt"></i> Sair da Conta
-                                                </a>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="fas fa-tachometer-alt me-2"></i>Dashboard</h2>
+    <a href="nova_campanha_usuario.php" class="btn btn-primary">
+        <i class="fas fa-plus me-2"></i>Nova Campanha
+    </a>
+</div>
+<!-- Welcome Section -->
+<div class="alert alert-primary border-0 shadow-sm mb-4">
+    <div class="row align-items-center">
+        <div class="col-md-8">
+            <h4 class="alert-heading mb-2"><i class="fas fa-hand-wave me-2"></i>Olá, <?= htmlspecialchars($usuario['nome']) ?>!</h4>
+            <p class="mb-0">Bem-vindo de volta ao seu painel. Acompanhe suas campanhas e doações.</p>
+        </div>
+        <div class="col-md-4 text-md-end mt-3 mt-md-0">
+            <div class="text-muted small">
+                <i class="fas fa-clock me-1"></i>
+                Último acesso: <?= $usuario['ultimo_acesso'] ? date('d/m/Y H:i', strtotime($usuario['ultimo_acesso'])) : 'Primeiro acesso' ?>
             </div>
         </div>
     </div>
+</div>
 
-    <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
+            <!-- Statistics Cards -->
+            <div class="row mb-4">
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="stats-card">
+                        <div class="stats-icon" style="background: linear-gradient(135deg, #17a2b8, #007bff);">
+                            <i class="fas fa-bullhorn"></i>
+                        </div>
+                        <div class="stats-number"><?= $minhasCampanhas ?></div>
+                        <div class="stats-label">Minhas Campanhas</div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="stats-card">
+                        <div class="stats-icon" style="background: linear-gradient(135deg, #28a745, #20c997);">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <div class="stats-number"><?= $campanhasAprovadas ?></div>
+                        <div class="stats-label">Campanhas Aprovadas</div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="stats-card">
+                        <div class="stats-icon" style="background: linear-gradient(135deg, #ffc107, #fd7e14);">
+                            <i class="fas fa-money-bill-wave"></i>
+                        </div>
+                        <div class="stats-number">R$ <?= number_format($totalArrecadado, 0, ',', '.') ?></div>
+                        <div class="stats-label">Total Arrecadado</div>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="stats-card">
+                        <div class="stats-icon" style="background: linear-gradient(135deg, #e83e8c, #6610f2);">
+                            <i class="fas fa-heart"></i>
+                        </div>
+                        <div class="stats-number">R$ <?= number_format($totalDoado, 0, ',', '.') ?></div>
+                        <div class="stats-label">Total Doado</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <!-- Minhas Campanhas -->
+                <div class="col-lg-8 mb-4">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title">
+                                <i class="fas fa-bullhorn me-2"></i>Minhas Campanhas
+                            </h5>
+                            <a href="nova_campanha_usuario.php" class="btn btn-outline-primary btn-sm">
+                                <i class="fas fa-plus me-1"></i>Nova
+                            </a>
+                        </div>
+                        <div class="card-body">
+                            <?php if (empty($campanhas)): ?>
+                                <div class="empty-state">
+                                    <i class="fas fa-bullhorn"></i>
+                                    <h5>Nenhuma campanha criada</h5>
+                                    <p>Crie sua primeira campanha e comece a arrecadar fundos!</p>
+                                    <a href="nova_campanha_usuario.php" class="btn btn-primary">
+                                        <i class="fas fa-plus me-2"></i>Criar Campanha
+                                    </a>
+                                </div>
+                            <?php else: ?>
+                                <div class="table-responsive">
+                                    <table class="table">
+                                        <thead>
+                                            <tr>
+                                                <th>Campanha</th>
+                                                <th>Status</th>
+                                                <th>Progresso</th>
+                                                <th>Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($campanhas as $campanha): ?>
+                                                <tr>
+                                                    <td>
+                                                        <div class="d-flex align-items-center">
+                                                            <?php if ($campanha['imagem']): ?>
+                                                                <img src="<?= htmlspecialchars($campanha['imagem']) ?>" 
+                                                                     alt="Campanha" 
+                                                                     style="width: 50px; height: 50px; object-fit: cover; border-radius: 8px;" 
+                                                                     class="me-3">
+                                                            <?php endif; ?>
+                                                            <div>
+                                                                <strong><?= htmlspecialchars($campanha['titulo']) ?></strong><br>
+                                                                <small class="text-muted"><?= htmlspecialchars($campanha['categoria_nome'] ?? 'Sem categoria') ?></small>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <?php
+                                                        $status_class = 'info';
+                                                        $status_text = $campanha['status'];
+                                                        switch ($campanha['status']) {
+                                                            case 'aprovada':
+                                                                $status_class = 'success';
+                                                                $status_text = 'Aprovada';
+                                                                break;
+                                                            case 'pendente':
+                                                                $status_class = 'warning';
+                                                                $status_text = 'Pendente';
+                                                                break;
+                                                            case 'rejeitada':
+                                                                $status_class = 'danger';
+                                                                $status_text = 'Rejeitada';
+                                                                break;
+                                                        }
+                                                        ?>
+                                                        <span class="badge badge-<?= $status_class ?>">
+                                                            <?= $status_text ?>
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <div class="progress mb-2" style="height: 6px;">
+                                                            <div class="progress-bar" 
+                                                                 style="width: <?= min(100, $campanha['percentual_meta']) ?>%"></div>
+                                                        </div>
+                                                        <small>R$ <?= number_format($campanha['arrecadado'], 0, ',', '.') ?> de R$ <?= number_format($campanha['meta'], 0, ',', '.') ?></small>
+                                                    </td>
+                                                    <td>
+                                                        <div class="btn-group btn-group-sm">
+                                                            <a href="detalhes_campanha.php?id=<?= $campanha['id'] ?>" 
+                                                               class="btn btn-outline-primary btn-sm">
+                                                                <i class="fas fa-eye"></i>
+                                                            </a>
+                                                            <a href="editar_campanha_usuario.php?id=<?= $campanha['id'] ?>" 
+                                                               class="btn btn-outline-secondary btn-sm">
+                                                                <i class="fas fa-edit"></i>
+                                                            </a>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                
+                                <?php if ($minhasCampanhas > 5): ?>
+                                    <div class="text-center mt-3">
+                                        <a href="minhas_campanhas.php" class="btn btn-outline-primary">
+                                            Ver todas as campanhas (<?= $minhasCampanhas ?>)
+                                        </a>
+                                    </div>
+                                <?php endif; ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sidebar -->
+                <div class="col-lg-4">
+                    <!-- Quick Actions -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="card-title">
+                                <i class="fas fa-bolt me-2"></i>Ações Rápidas
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-grid gap-2">
+                                <a href="nova_campanha_usuario.php" class="btn btn-primary">
+                                    <i class="fas fa-plus me-2"></i>Nova Campanha
+                                </a>
+                                <a href="vaquinhas.php" class="btn btn-outline-primary">
+                                    <i class="fas fa-search me-2"></i>Explorar Campanhas
+                                </a>
+                                <a href="perfil.php" class="btn btn-outline-secondary">
+                                    <i class="fas fa-user-edit me-2"></i>Editar Perfil
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title">
+                                <i class="fas fa-clock me-2"></i>Atividade Recente
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <?php if (empty($doacoes)): ?>
+                                <div class="text-center py-3">
+                                    <i class="fas fa-heart text-muted mb-3" style="font-size: 2rem;"></i>
+                                    <p class="text-muted mb-0">Nenhuma doação ainda</p>
+                                </div>
+                            <?php else: ?>
+                                <?php foreach (array_slice($doacoes, 0, 3) as $doacao): ?>
+                                    <div class="d-flex align-items-center mb-3">
+                                        <div class="flex-shrink-0 me-3">
+                                            <div class="bg-success rounded-circle d-flex align-items-center justify-content-center" 
+                                                 style="width: 40px; height: 40px;">
+                                                <i class="fas fa-heart text-white"></i>
+                                            </div>
+                                        </div>
+                                        <div class="flex-grow-1">
+                                            <strong>R$ <?= number_format($doacao['valor'], 2, ',', '.') ?></strong><br>
+                                            <small class="text-muted">
+                                                para <?= htmlspecialchars($doacao['campanha_titulo']) ?><br>
+                                                <?= date('d/m/Y', strtotime($doacao['criado_em'])) ?>
+                                            </small>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                                
+                                <?php if ($minhasDoacoes > 3): ?>
+                                    <div class="text-center">
+                                        <a href="minhas_doacoes.php" class="btn btn-outline-primary btn-sm">
+                                            Ver todas (<?= $minhasDoacoes ?>)
+                                        </a>
+                                    </div>
+                                <?php endif; ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <?php if (!empty($doacoesRecebidas) || !empty($campanhasPorStatus)): ?>
+            <div class="row mt-4">
+                <!-- Doações Recebidas Chart -->
+                <?php if (!empty($doacoesRecebidas)): ?>
+                <div class="col-lg-8 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title">
+                                <i class="fas fa-chart-line me-2"></i>Doações Recebidas (Últimos 30 dias)
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="doacoesChart" height="100"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+
+                <!-- Status Chart -->
+                <?php if (!empty($campanhasPorStatus)): ?>
+                <div class="col-lg-4 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title">
+                                <i class="fas fa-chart-pie me-2"></i>Status das Campanhas
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="statusChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
     <script>
-        // Gráfico de pizza - Status das campanhas
-        const campanhasCtx = document.getElementById('campanhasChart').getContext('2d');
-        new Chart(campanhasCtx, {
-            type: 'doughnut',
+        // Doações Recebidas Chart
+        <?php if (!empty($doacoesRecebidas)): ?>
+        const doacoesData = <?= json_encode($doacoesRecebidas) ?>;
+        const doacoesCtx = document.getElementById('doacoesChart').getContext('2d');
+        new Chart(doacoesCtx, {
+            type: 'line',
             data: {
-                labels: <?= json_encode(array_column($campanhasPorStatus, 'status')) ?>,
+                labels: doacoesData.map(d => {
+                    const date = new Date(d.data);
+                    return date.toLocaleDateString('pt-BR');
+                }),
                 datasets: [{
-                    data: <?= json_encode(array_column($campanhasPorStatus, 'total')) ?>,
-                    backgroundColor: [
-                        'rgba(75, 192, 192, 0.8)',
-                        'rgba(255, 206, 86, 0.8)',
-                        'rgba(54, 162, 235, 0.8)'
-                    ],
-                    borderWidth: 1
+                    label: 'Valor (R$)',
+                    data: doacoesData.map(d => parseFloat(d.valor_total || 0)),
+                    borderColor: getComputedStyle(document.documentElement).getPropertyValue('--cor-primaria'),
+                    backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--cor-primaria') + '20',
+                    tension: 0.4,
+                    fill: true
                 }]
             },
             options: {
@@ -723,116 +690,59 @@ $logo = $pdo->query('SELECT * FROM logo_site WHERE id=1')->fetch(PDO::FETCH_ASSO
                 maintainAspectRatio: false,
                 plugins: {
                     legend: {
-                        position: 'bottom'
+                        display: false
                     }
-                }
-            }
-        });
-
-        // Gráfico de linha - Doações por mês
-        const doacoesCtx = document.getElementById('doacoesChart').getContext('2d');
-        new Chart(doacoesCtx, {
-            type: 'line',
-            data: {
-                labels: <?= json_encode(array_column($doacoesPorMes, 'mes')) ?>,
-                datasets: [{
-                    label: 'Valor Total (R$)',
-                    data: <?= json_encode(array_column($doacoesPorMes, 'valor_total')) ?>,
-                    borderColor: 'rgb(75, 192, 192)',
-                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                    tension: 0.1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
+                },
                 scales: {
                     y: {
                         beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: 'Valor (R$)'
+                        ticks: {
+                            callback: function(value) {
+                                return 'R$ ' + value.toLocaleString('pt-BR');
+                            }
                         }
                     }
                 }
             }
         });
+        <?php endif; ?>
 
-        // Navegação por tabs
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.addEventListener('click', function(e) {
-                e.preventDefault();
-                
-                // Remover classe active de todos os links
-                document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-                
-                // Adicionar classe active ao link clicado
-                this.classList.add('active');
-                
-                // Mostrar tab correspondente
-                const target = this.getAttribute('href').substring(1);
-                document.querySelectorAll('.tab-pane').forEach(pane => {
-                    pane.classList.remove('show', 'active');
-                });
-                document.getElementById(target).classList.add('show', 'active');
-            });
+        // Status Chart
+        <?php if (!empty($campanhasPorStatus)): ?>
+        const statusData = <?= json_encode($campanhasPorStatus) ?>;
+        const statusCtx = document.getElementById('statusChart').getContext('2d');
+        new Chart(statusCtx, {
+            type: 'doughnut',
+            data: {
+                labels: statusData.map(s => {
+                    switch(s.status) {
+                        case 'aprovada': return 'Aprovadas';
+                        case 'pendente': return 'Pendentes';
+                        case 'rejeitada': return 'Rejeitadas';
+                        default: return s.status;
+                    }
+                }),
+                datasets: [{
+                    data: statusData.map(s => parseInt(s.total)),
+                    backgroundColor: [
+                        '#28a745',
+                        '#ffc107',
+                        '#dc3545',
+                        '#17a2b8'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
         });
+        <?php endif; ?>
+
     </script>
 
-    <!-- Modal Sugerir Categoria -->
-    <div class="modal fade" id="modalSugerirCategoria" tabindex="-1" aria-labelledby="modalSugerirCategoriaLabel" aria-hidden="true">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <form id="formSugerirCategoria" enctype="multipart/form-data">
-            <div class="modal-header">
-              <h5 class="modal-title" id="modalSugerirCategoriaLabel"><i class="fas fa-tag"></i> Sugerir Nova Categoria</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
-            </div>
-            <div class="modal-body">
-              <div class="mb-3">
-                <label for="nome_categoria" class="form-label">Nome da Categoria *</label>
-                <input type="text" class="form-control" id="nome_categoria" name="nome" required>
-              </div>
-              <div class="mb-3">
-                <label for="descricao_categoria" class="form-label">Descrição</label>
-                <textarea class="form-control" id="descricao_categoria" name="descricao" rows="3"></textarea>
-              </div>
-              <div class="mb-3">
-                <label for="imagem_categoria" class="form-label">Imagem</label>
-                <input type="file" class="form-control" id="imagem_categoria" name="imagem" accept="image/*">
-                <small class="form-text text-muted">Formatos aceitos: JPG, PNG, GIF, WebP. Tamanho máximo: 2MB</small>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-              <button type="submit" class="btn btn-primary"><i class="fas fa-paper-plane"></i> Enviar Sugestão</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-    <script>
-    // Sugestão de categoria via AJAX
-    const formSugerirCategoria = document.getElementById('formSugerirCategoria');
-    formSugerirCategoria.addEventListener('submit', function(e) {
-      e.preventDefault();
-      const formData = new FormData(this);
-      fetch('sugerir_categoria.php', {
-        method: 'POST',
-        body: formData
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          alert('Sugestão enviada! Aguarde aprovação do administrador.');
-          document.getElementById('modalSugerirCategoria').querySelector('.btn-close').click();
-          formSugerirCategoria.reset();
-        } else {
-          alert(data.message || 'Erro ao enviar sugestão.');
-        }
-      })
-      .catch(() => alert('Erro ao enviar sugestão.'));
-    });
-    </script>
-</body>
-</html> 
+<?php include '_footer_usuario.php'; ?> 
